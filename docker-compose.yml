@@ -1,0 +1,149 @@
+networks:
+  ai-evidence-net:
+    name: ai-evidence-net
+    driver: bridge
+
+volumes:
+  immudb-data:
+    name: immudb-data
+  ledger-wal:
+    name: ledger-wal
+
+services:
+  # ============================================================================
+  # 1. immudb: Immutable Cryptographic Ledger Store
+  # ============================================================================
+  immudb:
+    image: codenotary/immudb:latest
+    container_name: immudb
+    restart: unless-stopped
+    command: ["--web-server-port=3324", "--admin-password=immudb"]
+    ports:
+      - "3322:3322"
+      - "3324:3324"
+    volumes:
+      - immudb-data:/var/lib/immudb
+    networks:
+      - ai-evidence-net
+    healthcheck:
+      test: ["CMD", "immuadmin", "status"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ============================================================================
+  # 2. mock-llm: Upstream OpenAI-Compatible LLM Simulation
+  # ============================================================================
+  mock-llm:
+    build:
+      context: .
+      dockerfile: services/mock_llm/Dockerfile
+    container_name: mock-llm
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+    networks:
+      - ai-evidence-net
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+
+  # ============================================================================
+  # 3. ledger-worker: Micro-Batching Engine & immudb Ingestion Daemon
+  # ============================================================================
+  ledger-worker:
+    build:
+      context: .
+      dockerfile: services/ledger/Dockerfile
+    container_name: ledger-worker
+    restart: unless-stopped
+    ports:
+      - "8083:8083"
+    environment:
+      - PORT=8083
+      - IMMUDB_ADDRESS=immudb
+      - IMMUDB_PORT=3324
+      - IMMUDB_DATABASE=defaultdb
+      - IMMUDB_USERNAME=immudb
+      - IMMUDB_PASSWORD=immudb
+      - LEDGER_QUEUE_CAPACITY=50000
+      - LEDGER_BATCH_SIZE=100
+      - LEDGER_FLUSH_INTERVAL_MS=50
+      - WAL_DIR=/var/lib/ledger/wal
+      - ANCHOR_INTERVAL_SEC=3600
+    volumes:
+      - ledger-wal:/var/lib/ledger/wal
+    networks:
+      - ai-evidence-net
+    depends_on:
+      immudb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ============================================================================
+  # 4. gateway: AI Reverse Proxy, PII Redaction & ML Ingest API
+  # ============================================================================
+  gateway:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    container_name: gateway
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - GATEWAY_PORT=8081
+      - UPSTREAM_LLM_URL=http://mock-llm:8080
+      - LEDGER_QUEUE_CAPACITY=50000
+      - LEDGER_SERVICE_URL=http://ledger-worker:8083
+    networks:
+      - ai-evidence-net
+    depends_on:
+      mock-llm:
+        condition: service_healthy
+      ledger-worker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ============================================================================
+  # 5. approval: Human-in-the-Loop Approval UI & Pluggable Signer API
+  # ============================================================================
+  approval:
+    build:
+      context: .
+      dockerfile: services/approval/Dockerfile
+    container_name: approval
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    environment:
+      - PORT=8082
+      - LEDGER_QUEUE_CAPACITY=1000
+      - LEDGER_SERVICE_URL=http://ledger-worker:8083
+    networks:
+      - ai-evidence-net
+    depends_on:
+      ledger-worker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s

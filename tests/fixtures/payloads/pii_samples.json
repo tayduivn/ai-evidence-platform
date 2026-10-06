@@ -1,0 +1,83 @@
+{
+  "cccd": [
+    {
+      "raw": "001090012345",
+      "valid": true,
+      "masked": "001******345"
+    },
+    {
+      "raw": "079085009876",
+      "valid": true,
+      "masked": "079******876"
+    },
+    {
+      "raw": "038192004561",
+      "valid": true,
+      "masked": "038******561"
+    },
+    {
+      "raw": "12345678",
+      "valid": false,
+      "note": "Too short (8 digits)"
+    },
+    {
+      "raw": "0010900123456",
+      "valid": false,
+      "note": "Too long (13 digits)"
+    },
+    {
+      "raw": "00109001234A",
+      "valid": false,
+      "note": "Contains letter"
+    }
+  ],
+  "phone": [
+    {
+      "raw": "0912345678",
+      "valid": true,
+      "masked": "091****678"
+    },
+    {
+      "raw": "0988776655",
+      "valid": true,
+      "masked": "098****655"
+    },
+    {
+      "raw": "+84903112233",
+      "valid": true,
+      "masked": "+8490****233"
+    },
+    {
+      "raw": "0868999888",
+      "valid": true,
+      "masked": "086****888"
+    },
+    {
+      "raw": "012345678",
+      "valid": false,
+      "note": "Invalid prefix"
+    },
+    {
+      "raw": "0912345",
+      "valid": false,
+      "note": "Too short"
+    }
+  ],
+  "bank_account": [
+    {
+      "raw": "19034567890123",
+      "bank": "Techcombank",
+      "masked": "1903******0123"
+    },
+    {
+      "raw": "0071001234567",
+      "bank": "Vietcombank",
+      "masked": "0071******4567"
+    },
+    {
+      "raw": "101889998888",
+      "bank": "VietinBank",
+      "masked": "1018******8888"
+    }
+  ]
+}

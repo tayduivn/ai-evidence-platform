@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EI Evidence Platform — Human-in-the-Loop AI Governance</title>
+    <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+    <!-- Top Navigation & Role Bar -->
+    <header class="navbar">
+        <div class="nav-brand">
+            <span class="logo-shield">🛡️</span>
+            <div>
+                <h1 class="brand-title">BẢO CHỨNG QUYẾT ĐỊNH AI</h1>
+                <p class="brand-subtitle">AI Evidence & Accountability Platform • Human-in-the-Loop</p>
+            </div>
+        </div>
+        <div class="nav-user-control">
+            <label for="persona-select">Vai trò kiểm thử:</label>
+            <select id="persona-select" class="form-select">
+                <option value="credit-lead-01|credit_lead">👤 Trưởng nhóm Tín dụng (credit-lead-01)</option>
+                <option value="cro-risk-officer-02|cro_risk_officer">👤 Giám đốc Quản trị Rủi ro (cro-risk-officer-02)</option>
+                <option value="loan-officer-originator|originator">⚠️ Người tạo hồ sơ (loan-officer-originator)</option>
+            </select>
+            <span id="active-user-badge" class="badge badge-primary">credit_lead</span>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- Notification Banner Container -->
+        <div id="banner-container"></div>
+
+        <div class="layout-grid">
+            <!-- Left Column: Pending Queue -->
+            <section class="card queue-panel">
+                <div class="card-header">
+                    <h2>Hàng đợi Quyết định Chờ Duyệt</h2>
+                    <span id="queue-count-badge" class="badge badge-info">0 chờ duyệt</span>
+                </div>
+                <div class="filter-bar">
+                    <input type="text" id="filter-search" placeholder="Tìm theo ID, model..." class="form-input">
+                    <select id="filter-type" class="form-select">
+                        <option value="all">Tất cả hệ thống</option>
+                        <option value="ml">Mô hình ML</option>
+                        <option value="llm">Mô hình LLM</option>
+                    </select>
+                </div>
+                <div class="table-container">
+                    <table class="data-table" id="queue-table">
+                        <thead>
+                            <tr>
+                                <th>Mã Quyết định</th>
+                                <th>Hệ thống AI</th>
+                                <th>Rủi ro</th>
+                                <th>4-Mắt</th>
+                                <th>Chờ</th>
+                                <th>Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody id="queue-table-body">
+                            <tr>
+                                <td colspan="6" class="text-center text-muted">Đang tải danh sách...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Right Column: Decision Inspection Panel -->
+            <section class="card detail-panel" id="detail-panel">
+                <div id="empty-detail-state" class="empty-state">
+                    <div class="empty-icon">📋</div>
+                    <h3>Chưa chọn quyết định</h3>
+                    <p class="text-muted">Chọn một quyết định từ hàng đợi bên trái để bắt đầu thẩm định và phê duyệt.</p>
+                </div>
+
+                <div id="active-detail-content" class="hidden">
+                    <!-- Detail Header -->
+                    <div class="detail-header">
+                        <div>
+                            <div class="id-row">
+                                <span class="badge" id="detail-system-type">ML</span>
+                                <h2 id="detail-decision-id">dec-0000</h2>
+                                <span class="badge" id="detail-risk-tier">HIGH</span>
+                                <span class="badge" id="detail-status">PENDING</span>
+                            </div>
+                            <p class="meta-row text-muted" id="detail-meta-text">Hệ thống: credit-scoring-xgboost • Tạo lúc: 2026-10-05 10:30</p>
+                        </div>
+                    </div>
+
+                    <!-- 4-Eyes Stepper Progress -->
+                    <div class="stepper-box">
+                        <h3>Tiến trình Phê duyệt 4-Mắt (Separation of Duties)</h3>
+                        <div class="stepper" id="four-eyes-stepper">
+                            <div class="step" id="step-node-1">
+                                <div class="step-circle">1</div>
+                                <div class="step-label">
+                                    <strong>Người duyệt 1 (Lead)</strong>
+                                    <span class="step-sub text-muted" id="step-1-sub">Chờ phê duyệt</span>
+                                </div>
+                            </div>
+                            <div class="step-line"></div>
+                            <div class="step" id="step-node-2">
+                                <div class="step-circle">2</div>
+                                <div class="step-label">
+                                    <strong>Người duyệt 2 (CRO)</strong>
+                                    <span class="step-sub text-muted" id="step-2-sub">Chờ phê duyệt</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="separation-warning-box"></div>
+                    </div>
+
+                    <!-- Inspection Body: ML Explainer OR LLM Diff -->
+                    <div id="ml-inspection-view" class="inspection-view hidden">
+                        <h3>Bảng Thẩm định Chấm điểm Tín dụng (ML Credit Scoring)</h3>
+                        <div class="score-card">
+                            <div class="score-metric">
+                                <div class="score-val" id="ml-score-val">785.5</div>
+                                <div class="score-label">Điểm tín dụng (Ngưỡng đạt: 650)</div>
+                            </div>
+                            <div class="score-decision">
+                                <span class="badge badge-success text-lg" id="ml-decision-label">APPROVE_LOAN_500M</span>
+                                <div class="text-muted" id="ml-amount-label">Số tiền: 500,000,000 VND</div>
+                            </div>
+                        </div>
+
+                        <!-- SHAP Waterfall Chart Container -->
+                        <div class="chart-box">
+                            <div class="chart-title-row">
+                                <h4>Biểu đồ Đóng góp Tính năng SHAP (TreeExplainer Waterfall)</h4>
+                                <span class="text-sm text-muted">Giá trị nền tảng E[f(x)] = 650.0</span>
+                            </div>
+                            <div id="shap-chart" class="shap-chart-container"></div>
+                        </div>
+
+                        <!-- Feature Table -->
+                        <h4>Đặc trưng Đầu vào (Input Features)</h4>
+                        <table class="data-table condensed-table" id="features-table">
+                            <thead>
+                                <tr><th>Thuộc tính</th><th>Giá trị</th></tr>
+                            </thead>
+                            <tbody id="features-table-body"></tbody>
+                        </table>
+                    </div>
+
+                    <div id="llm-inspection-view" class="inspection-view hidden">
+                        <h3>Kiểm tra Đối soát Prompt & Thông tin PII Tiếng Việt</h3>
+                        <div class="pii-tags-bar">
+                            <span class="text-sm">Thực thể PII phát hiện:</span>
+                            <div id="pii-badges-list" class="badge-group"></div>
+                        </div>
+                        <div class="diff-container">
+                            <h4>Nội dung Prompt Đã Khử PII (Masked Diff View)</h4>
+                            <div class="diff-view" id="prompt-diff-view"></div>
+                        </div>
+                    </div>
+
+                    <!-- Anti-Rubberstamping Live Dwell Timer Bar -->
+                    <div class="dwell-box">
+                        <div class="dwell-header">
+                            <div>
+                                <strong>Cơ chế Chống Duyệt Bừa (Anti-Rubberstamping)</strong>
+                                <p class="text-xs text-muted">Bắt buộc theo dõi và đọc hồ sơ tối thiểu <span id="dwell-required-sec">10</span> giây trước khi cho phép bấm phê duyệt.</p>
+                            </div>
+                            <div class="dwell-timer-display" id="dwell-timer-text">00:10</div>
+                        </div>
+                        <div class="progress-bar-bg">
+                            <div class="progress-bar-fill" id="dwell-progress-fill" style="width: 0%;"></div>
+                        </div>
+                        <div id="tab-focus-warning" class="text-xs text-warning hidden">
+                            ⚠️ Tab đang không được kích hoạt (Inactive). Đồng hồ đếm ngược đã tạm dừng!
+                        </div>
+                    </div>
+
+                    <!-- Action Decision Panel -->
+                    <div class="action-box">
+                        <div class="action-inputs">
+                            <div class="form-group">
+                                <label for="signer-type-select">Phương thức Ký số:</label>
+                                <select id="signer-type-select" class="form-select">
+                                    <option value="internal">Khóa Nội bộ (Internal SSO/RBAC)</option>
+                                    <option value="ca_vn_token">USB Token CA Việt Nam (PKCS#11)</option>
+                                    <option value="ca_vn_remote">Ký số Từ xa CA VN (SmartCA / Cloud HSM)</option>
+                                </select>
+                            </div>
+                            <div class="form-group flex-1">
+                                <label for="decision-comment">Ghi chú Phê duyệt:</label>
+                                <input type="text" id="decision-comment" class="form-input" placeholder="Nhập lý do hoặc căn cứ phê duyệt...">
+                            </div>
+                        </div>
+                        <div class="btn-group">
+                            <button id="btn-reject" class="btn btn-danger" onclick="submitDecision('REJECT')">
+                                ✖ Từ chối (Reject)
+                            </button>
+                            <button id="btn-approve" class="btn btn-success" disabled title="Vui lòng đọc hồ sơ đủ thời gian tối thiểu" onclick="submitDecision('APPROVE')">
+                                🔒 Phê duyệt (Approve)
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script src="/app.js"></script>
+</body>
+</html>

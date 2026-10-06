@@ -1,0 +1,37 @@
+{
+  "ai_system_id": "credit-scoring-xgboost",
+  "model_version": "v2.1.0",
+  "artifact_hash": "a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e",
+  "features": {
+    "monthly_income_vnd": 45000000,
+    "debt_to_income_ratio": 0.28,
+    "credit_history_months": 36,
+    "late_payment_count": 0,
+    "collateral_value_vnd": 1200000000
+  },
+  "score": 785.5,
+  "decision": "APPROVE_LOAN_500M",
+  "explanation": {
+    "method": "SHAP_TreeExplainer",
+    "top_features": [
+      {
+        "feature": "monthly_income_vnd",
+        "importance": 0.42,
+        "contribution": "+65pts"
+      },
+      {
+        "feature": "debt_to_income_ratio",
+        "importance": 0.31,
+        "contribution": "+40pts"
+      },
+      {
+        "feature": "late_payment_count",
+        "importance": 0.18,
+        "contribution": "+25pts"
+      }
+    ]
+  },
+  "correlation_id": "tx-fintech-loan-88912",
+  "requires_approval": true,
+  "creator_id": "ml-system-credit-scoring"
+}

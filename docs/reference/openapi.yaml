@@ -1,0 +1,709 @@
+openapi: 3.0.3
+info:
+  title: AI Evidence & Accountability Platform API
+  version: 0.3.0
+  description: |
+    Enterprise-grade, tamper-evident audit ledger and governance gateway for AI systems.
+    Complies with EU AI Act, ISO/IEC 42001, and Vietnam Decree 13/2023/ND-CP.
+    Encompasses AI Gateway (:8081), Approval Service (:8082), and Ledger Worker (:8083).
+  contact:
+    name: Huy Tran (VietCRM)
+    email: huytran@vietcrm.com
+    url: https://vietcrm.com
+  license:
+    name: AGPL-3.0 / Commercial Enterprise License
+    url: https://vietcrm.com
+
+servers:
+  - url: http://localhost:8081
+    description: AI Gateway Service (Reverse Proxy, PII Scrubbing, Shadow AI Guard)
+  - url: http://localhost:8082
+    description: Human-in-the-Loop Approval Service (4-Eyes Governance & Signatures)
+  - url: http://localhost:8083
+    description: Ledger Worker Service (Cryptographic Merkle Ingestion & immudb)
+
+tags:
+  - name: Gateway - Chat & Inference
+    description: Transparent reverse proxy endpoints for LLM interaction and dual-mode governance.
+  - name: Gateway - Ingestion & Health
+    description: Direct ML telemetry ingestion and readiness probes.
+  - name: Approval - Governance
+    description: Four-Eyes Principle review workflows, Dwell Time tracking, and cryptographic signing.
+  - name: Ledger - Core
+    description: Append-only event ingestion, cryptographic proofs, and immudb synchronization.
+
+paths:
+  # ============================================================================
+  # GATEWAY SERVICE ENDPOINTS (:8081)
+  # ============================================================================
+  /health:
+    get:
+      tags:
+        - Gateway - Ingestion & Health
+      summary: Gateway Liveness Probe
+      description: Returns HTTP 200 if the service process is alive and responsive.
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  version:
+                    type: string
+                    example: 0.3.0
+
+  /ready:
+    get:
+      tags:
+        - Gateway - Ingestion & Health
+      summary: Gateway Readiness Probe
+      description: Returns HTTP 200 if downstream dependencies (Mock LLM, Ledger Worker) are reachable.
+      responses:
+        '200':
+          description: Gateway is ready to accept traffic
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ready
+
+  /v1/chat/completions:
+    post:
+      tags:
+        - Gateway - Chat & Inference
+      summary: OpenAI-Compatible Chat Completion Proxy
+      description: |
+        Intercepts prompt, redacts sensitive Vietnamese PII (CCCD, phone numbers, emails),
+        validates system ID against whitelist, evaluates risk policies, and forwards to upstream LLM.
+        May return HTTP 202 Accepted if human sign-off is required before execution.
+      parameters:
+        - $ref: '#/components/parameters/SystemIdHeader'
+        - $ref: '#/components/parameters/UserIdHeader'
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+      responses:
+        '200':
+          description: Successful completion response from upstream LLM
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionResponse'
+            text/event-stream:
+              schema:
+                type: string
+                description: Server-Sent Events (SSE) stream when stream=true.
+        '202':
+          description: Action intercepted for mandatory 4-Eyes Human Approval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Intercept202Response'
+        '400':
+          description: Malformed JSON or invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Shadow AI violation - System ID not registered in registry.json
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Upstream LLM unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/ml/ingest:
+    post:
+      tags:
+        - Gateway - Ingestion & Health
+      summary: Direct Machine Learning Telemetry Ingestion
+      description: Ingests model evaluation, feature embeddings, or agentic thought chains directly.
+      parameters:
+        - $ref: '#/components/parameters/SystemIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MLIngestRequest'
+      responses:
+        '202':
+          description: Event successfully accepted into non-blocking ring-buffer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnqueueResponse'
+        '400':
+          description: Missing required fields or schema validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/decisions/{id}/status:
+    get:
+      tags:
+        - Gateway - Chat & Inference
+      summary: Poll Human Approval Decision Status
+      description: Used by client SDKs to poll for the outcome of an intercepted action.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Unique decision ID returned by HTTP 202 Intercept
+          schema:
+            type: string
+            example: dec-20261006-a8f9c1
+      responses:
+        '200':
+          description: Decision status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DecisionStatusResponse'
+        '404':
+          description: Decision ID not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================================
+  # APPROVAL SERVICE ENDPOINTS (:8082)
+  # ============================================================================
+  /api/v1/approvals/pending:
+    get:
+      tags:
+        - Approval - Governance
+      summary: List Pending Approvals
+      description: Returns a list of pending high-stakes AI requests awaiting human review.
+      responses:
+        '200':
+          description: List of pending approval requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApprovalItem'
+
+  /api/v1/approvals/{id}:
+    get:
+      tags:
+        - Approval - Governance
+      summary: Get Approval Details
+      description: Retrieves complete metadata, prompt, redacted payload, and audit context for an item.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Approval ID
+          schema:
+            type: string
+            example: appv-77a1c8f
+      responses:
+        '200':
+          description: Detailed approval object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalItem'
+        '404':
+          description: Approval request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/approvals/{id}/dwell:
+    post:
+      tags:
+        - Approval - Governance
+      summary: Record Dwell Time Heartbeat
+      description: |
+        Called periodically (every 1-3 seconds) while the human reviewer has the decision modal open.
+        Enforces anti-rubber-stamping guarantees before allowing final sign-off.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Approval ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DwellHeartbeatRequest'
+      responses:
+        '200':
+          description: Heartbeat recorded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DwellHeartbeatResponse'
+        '404':
+          description: Approval request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/approvals/{id}/decide:
+    post:
+      tags:
+        - Approval - Governance
+      summary: Submit Approval Decision with Digital Signature
+      description: |
+        Executes final human decision (APPROVED or REJECTED).
+        Enforces 4-Eyes rule (proposer != approver), checks Dwell Time minimum, and attaches cryptographic signature.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Approval ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecisionSubmissionRequest'
+      responses:
+        '200':
+          description: Decision successfully committed and signed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DecisionSubmissionResponse'
+        '400':
+          description: Policy violation (e.g. self-approval attempted, dwell time not fulfilled)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict (concurrent review or already decided)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================================
+  # LEDGER WORKER ENDPOINTS (:8083)
+  # ============================================================================
+  /api/v1/ledger/events:
+    post:
+      tags:
+        - Ledger - Core
+      summary: Ingest Audit Event into Cryptographic Queue
+      description: Non-blocking append endpoint. Validates envelope and enqueues for batch hashing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuditEventEnvelope'
+      responses:
+        '202':
+          description: Event accepted into micro-batching ring buffer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnqueueResponse'
+        '400':
+          description: Invalid envelope schema
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Ingestion queue saturated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      tags:
+        - Ledger - Core
+      summary: Query Audit Events
+      description: Lookup historical audit events by unique event_id or correlation_id.
+      parameters:
+        - name: event_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Specific event ID to look up
+        - name: correlation_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Trace or correlation ID linking multiple interactions
+      responses:
+        '200':
+          description: Found event(s)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/AuditEventEnvelope'
+                  - type: array
+                    items:
+                      $ref: '#/components/schemas/AuditEventEnvelope'
+        '404':
+          description: Event not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/ledger/stats:
+    get:
+      tags:
+        - Ledger - Core
+      summary: Ledger Queue and Ingestion Metrics
+      description: Returns buffer health, events ingested, batch metrics, and DiskWAL replay statistics.
+      responses:
+        '200':
+          description: Health and performance statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerStatsResponse'
+
+components:
+  parameters:
+    SystemIdHeader:
+      name: X-AI-System-ID
+      in: header
+      required: true
+      description: Registered identifier of the calling AI system
+      schema:
+        type: string
+        example: credit-risk-engine
+
+    UserIdHeader:
+      name: X-User-ID
+      in: header
+      required: false
+      description: Identity of the end-user or agent invoking the model
+      schema:
+        type: string
+        example: agent-smith-01
+
+    CorrelationIdHeader:
+      name: X-Correlation-ID
+      in: header
+      required: false
+      description: Distributed trace ID across service hops
+      schema:
+        type: string
+        example: corr-99120-fa4bc1
+
+  schemas:
+    ChatCompletionRequest:
+      type: object
+      required:
+        - model
+        - messages
+      properties:
+        model:
+          type: string
+          example: gpt-4o
+        messages:
+          type: array
+          items:
+            type: object
+            required:
+              - role
+              - content
+            properties:
+              role:
+                type: string
+                enum: [system, user, assistant, function]
+                example: user
+              content:
+                type: string
+                example: Customer Nguyen Van A requests 15,000 USD loan disbursement.
+        temperature:
+          type: number
+          default: 0.7
+        stream:
+          type: boolean
+          default: false
+
+    ChatCompletionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          example: chatcmpl-8f92b7c
+        object:
+          type: string
+          example: chat.completion
+        created:
+          type: integer
+          example: 1728216000
+        model:
+          type: string
+          example: gpt-4o
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              message:
+                type: object
+                properties:
+                  role:
+                    type: string
+                    example: assistant
+                  content:
+                    type: string
+                    example: Evaluation processed successfully.
+
+    Intercept202Response:
+      type: object
+      properties:
+        status:
+          type: string
+          example: INTERCEPTED
+        decision_id:
+          type: string
+          example: dec-20261006-a8f9c1
+        policy_violated:
+          type: string
+          example: HIGH_STAKES_FINANCIAL_DISBURSEMENT
+        poll_url:
+          type: string
+          example: /api/v1/decisions/dec-20261006-a8f9c1/status
+        message:
+          type: string
+          example: Action requires mandatory Four-Eyes human verification.
+
+    DecisionStatusResponse:
+      type: object
+      properties:
+        decision_id:
+          type: string
+          example: dec-20261006-a8f9c1
+        status:
+          type: string
+          enum: [PENDING, UNDER_REVIEW, APPROVED, REJECTED, EXPIRED]
+          example: APPROVED
+        approver_id:
+          type: string
+          example: compliance-officer-09
+        decision_time:
+          type: string
+          format: date-time
+        signature_hash:
+          type: string
+          example: a9b3c4...
+
+    MLIngestRequest:
+      type: object
+      required:
+        - event_type
+        - payload
+      properties:
+        event_type:
+          type: string
+          example: agentic_tool_call
+        payload:
+          type: object
+          example:
+            tool: database_query
+            query: SELECT balance FROM accounts WHERE id = 102
+        user_id:
+          type: string
+          example: user-881
+
+    EnqueueResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ENQUEUED
+        event_id:
+          type: string
+          example: evt-20261006120000-fa89c1
+
+    ApprovalItem:
+      type: object
+      properties:
+        id:
+          type: string
+          example: appv-77a1c8f
+        system_id:
+          type: string
+          example: credit-risk-engine
+        proposer_id:
+          type: string
+          example: loan-officer-01
+        status:
+          type: string
+          enum: [PENDING, UNDER_REVIEW, APPROVED, REJECTED, EXPIRED]
+          example: PENDING
+        created_at:
+          type: string
+          format: date-time
+        payload:
+          type: object
+        dwell_time_seconds:
+          type: integer
+          example: 15
+
+    DwellHeartbeatRequest:
+      type: object
+      required:
+        - reviewer_id
+      properties:
+        reviewer_id:
+          type: string
+          example: compliance-officer-09
+
+    DwellHeartbeatResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: HEARTBEAT_ACK
+        accumulated_dwell_ms:
+          type: integer
+          example: 8500
+        required_dwell_ms:
+          type: integer
+          example: 15000
+        eligible_to_decide:
+          type: boolean
+          example: false
+
+    DecisionSubmissionRequest:
+      type: object
+      required:
+        - reviewer_id
+        - decision
+      properties:
+        reviewer_id:
+          type: string
+          example: compliance-officer-09
+        decision:
+          type: string
+          enum: [APPROVED, REJECTED]
+          example: APPROVED
+        comments:
+          type: string
+          example: Documentation verified and collateral values checked.
+        signature_type:
+          type: string
+          enum: [INTERNAL_RSA_PSS, VN_USB_TOKEN, VN_REMOTE_SIGNING]
+          default: INTERNAL_RSA_PSS
+
+    DecisionSubmissionResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: DECISION_RECORDED
+        approval_id:
+          type: string
+          example: appv-77a1c8f
+        state:
+          type: string
+          example: APPROVED
+        signature_digest:
+          type: string
+          example: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+
+    AuditEventEnvelope:
+      type: object
+      required:
+        - event_id
+        - system_id
+        - event_type
+        - payload
+      properties:
+        event_id:
+          type: string
+          example: evt-20261006120000-fa89c1
+        timestamp:
+          type: string
+          format: date-time
+        system_id:
+          type: string
+          example: credit-risk-engine
+        event_type:
+          type: string
+          example: prompt_evaluation
+        user_id:
+          type: string
+          example: agent-smith-01
+        correlation_id:
+          type: string
+          example: corr-99120-fa4bc1
+        payload:
+          type: object
+
+    LedgerStatsResponse:
+      type: object
+      properties:
+        worker:
+          type: object
+          properties:
+            events_ingested:
+              type: integer
+              example: 12450
+            batches_flushed:
+              type: integer
+              example: 125
+            wal_replayed:
+              type: integer
+              example: 0
+        queue:
+          type: object
+          properties:
+            capacity:
+              type: integer
+              example: 50000
+            current_length:
+              type: integer
+              example: 12
+            drop_count:
+              type: integer
+              example: 0
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Policy violation
+        details:
+          type: string
+          example: Proposer cannot approve their own high-stakes decision (Four-Eyes Violation).

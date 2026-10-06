@@ -1,0 +1,42 @@
+{
+  "payload_size_kb": 74.453125,
+  "requests_count": 120,
+  "direct": {
+    "count": 120,
+    "min_ms": 3.621,
+    "p50_ms": 5.386,
+    "p90_ms": 25.569,
+    "p95_ms": 27.921,
+    "p99_ms": 30.321,
+    "max_ms": 36.631,
+    "mean_ms": 10.857
+  },
+  "gateway": {
+    "count": 120,
+    "min_ms": 10.747,
+    "p50_ms": 14.812,
+    "p90_ms": 18.306,
+    "p95_ms": 18.917,
+    "p99_ms": 19.445,
+    "max_ms": 19.588,
+    "mean_ms": 15.028
+  },
+  "overhead_percentiles": {
+    "p50_ms": 9.426,
+    "p90_ms": -7.263,
+    "p95_ms": -9.004,
+    "p99_ms": -10.876
+  },
+  "paired_overhead": {
+    "count": 120,
+    "min_ms": 0.0,
+    "p50_ms": 8.257,
+    "p90_ms": 12.052,
+    "p95_ms": 13.617,
+    "p99_ms": 15.231,
+    "max_ms": 15.797,
+    "mean_ms": 6.509
+  },
+  "sla_target_ms": 15.0,
+  "sla_passed": true
+}
